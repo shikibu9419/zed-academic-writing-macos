@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+usage() {
+  cat <<EOF
+Usage: zaw new <dir> [options]
+
+Create a new paper project from a template (root file: main.tex),
+run 'git init', and open it in Zed.
+
+Options:
+  --template <name>   Template to use. Default: the configured default
+                      (\`zaw templates default\`; built-in 'base' otherwise).
+                      User templates live in $ZAW_DATA_DIR/templates/
+  --no-open           Do not open the project in Zed
+EOF
+}
+
+dest=""
+template=""
+do_open=1
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --template)
+      template=${2:?--template requires a name}
+      shift 2
+      ;;
+    --no-open)
+      do_open=0
+      shift
+      ;;
+    -*)
+      msg "zaw new: unknown option: $1"
+      usage >&2
+      exit 2
+      ;;
+    *)
+      if [ -n "$dest" ]; then
+        msg "zaw new: unexpected argument: $1"
+        exit 2
+      fi
+      dest=$1
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$dest" ]; then
+  usage >&2
+  exit 2
+fi
+
+# Resolve the template source directory. Without --template, use the
+# configured default (`zaw templates default <name>`), else the built-in.
+if [ -z "$template" ]; then
+  template=$(zaw_config_get ZAW_TEMPLATE)
+  template=${template:-base}
+fi
+
+if [ "$template" = "base" ]; then
+  src="$ZAW_PREFIX/template"
+elif [ -d "$ZAW_DATA_DIR/templates/$template" ]; then
+  src="$ZAW_DATA_DIR/templates/$template"
+else
+  msg "zaw new: template not found: $template"
+  msg "Available templates:"
+  "$ZAW_LIBEXEC/zaw-templates" >&2
+  exit 2
+fi
+
+if [ ! -d "$src" ]; then
+  msg "zaw new: built-in template missing: $src"
+  msg "Reinstall zaw (see 'zaw update')."
+  exit 1
+fi
+
+if [ -e "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
+  msg "zaw new: $dest already exists and is not empty."
+  exit 1
+fi
+
+mkdir -p "$dest"
+cp -R "$src/." "$dest/"
+dest_abs=$(cd "$dest" && pwd)
+
+if [ -f "$dest_abs/gitignore" ]; then
+  mv "$dest_abs/gitignore" "$dest_abs/.gitignore"
+fi
+
+cat > "$dest_abs/.env.local" <<EOF
+# Project-local zaw settings (gitignored).
+# Global defaults: ${ZAW_CONFIG_DIR}/config.env
+ZED_LATEX_ROOT=main.tex
+EOF
+
+zaw_init_vcs "$dest_abs"
+
+printf 'Created %s from template %s (root: main.tex)\n' "$dest_abs" "$template"
+
+if [ "$do_open" = "1" ]; then
+  zaw_open_in_zed "$dest_abs"
+else
+  printf 'Open it with: zed %s\n' "$dest_abs"
+fi

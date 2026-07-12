@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+zaw_resolve_root "$@"
+root=$ZAW_ROOT
+tex_arg=$ZAW_TEX_ARG
+
+zaw_load_config "$root"
+
+mode=$ZED_LATEX_MODE
+image=$ZED_LATEX_IMAGE
+root_tex=$(find_root_tex "$root" "$tex_arg" fallback)
+root_tex_dir=$(cd "$(dirname "$root_tex")" && pwd)
+root_tex_base=$(basename "$root_tex")
+build_dir=$(zaw_build_dir "$root")
+mkdir -p "$build_dir"
+
+case "$mode" in
+  auto)
+    if [ -f "$root/latexmkrc" ] || [ -f "$root/.latexmkrc" ]; then
+      latexmk_mode_args=()
+    elif grep -Eq '^[[:space:]]*\\documentclass.*\{(jarticle|jsarticle|jlreq|ltjsarticle|ujarticle|ujreport|jsbook)\}|\\usepackage.*\{(luatexja|pxjahyper|otf)\}|\\begin\{document\}.*[ぁ-んァ-ン一-龯]' "$root_tex"; then
+      latexmk_mode_args=(-pdfdvi)
+    else
+      latexmk_mode_args=(-pdf)
+    fi
+    ;;
+  latexmkrc)
+    latexmk_mode_args=()
+    ;;
+  platex)
+    latexmk_mode_args=(-pdfdvi)
+    ;;
+  pdflatex)
+    latexmk_mode_args=(-pdf)
+    ;;
+  *)
+    msg "Unknown ZED_LATEX_MODE: $mode"
+    msg "Use one of: auto, latexmkrc, platex, pdflatex"
+    exit 2
+    ;;
+esac
+
+cd "$root"
+
+filtered_args=()
+for arg in "$@"; do
+  case "$arg" in
+    *.tex) ;;
+    *) filtered_args+=("$arg") ;;
+  esac
+done
+
+latexmk_cmd=(latexmk "-outdir=$build_dir")
+if [ "${#latexmk_mode_args[@]}" -gt 0 ]; then
+  latexmk_cmd+=("${latexmk_mode_args[@]}")
+fi
+if [ "${#filtered_args[@]}" -gt 0 ]; then
+  latexmk_cmd+=("${filtered_args[@]}")
+fi
+latexmk_cmd+=("$root_tex_base")
+
+# The project is mounted at its own host path on purpose: SyncTeX then
+# records host-valid absolute paths, which Skim requires for forward and
+# reverse search (Skim silently ignores paths that do not exist on the
+# host). Do not "simplify" this to a fixed container path.
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e TZ="${TZ:-Asia/Tokyo}" \
+  -e HOME=/tmp \
+  -v "$root:$root" \
+  -w "$root_tex_dir" \
+  "$image" \
+  "${latexmk_cmd[@]}"

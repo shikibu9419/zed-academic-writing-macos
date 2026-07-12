@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_VERSION="0.1.0"
+
+# Portable `readlink -f`: resolve the symlink chain so assets can be found
+# relative to the real install location (git clone, curl payload, brew keg,
+# or nix store) even when invoked via the ~/.local/bin symlink.
+resolve_real() {
+  target=$1
+  while [ -L "$target" ]; do
+    link=$(readlink "$target")
+    case "$link" in
+      /*) target=$link ;;
+      *) target=$(dirname "$target")/$link ;;
+    esac
+  done
+  printf '%s/%s\n' "$(cd "$(dirname "$target")" && pwd)" "$(basename "$target")"
+}
+
+self=$(resolve_real "$0")
+ZAW_PREFIX=$(cd "$(dirname "$self")/.." && pwd)
+export ZAW_PREFIX ZAW_VERSION
+
+usage() {
+  cat <<EOF
+zaw $ZAW_VERSION — Zed academic writing toolkit for macOS
+
+Usage: zaw <command> [args]
+
+Project:
+  new <dir>                      Create a paper project from a template and open it in Zed
+  init [<dir>]                   Set up an existing project (.env.local, AGENTS.md)
+  templates                      List available project templates
+  templates default [<name>]     Show or set the default template for 'new'
+  templates add <name> <src>     Add a template from a dir or GitHub URL
+
+Writing loop:
+  build [latexmk args] [file.tex]  Build LaTeX with Docker (latexmk)
+  open-pdf [file.tex]              Open the built PDF in Skim
+  forward-search <file> <line>     Jump Skim to the PDF position of a source line
+  notes [--open] [file.tex]        Export Skim annotations to .build/skim-notes.md
+  toggle-onsave                    Toggle texlab build-on-save in Zed settings
+
+Environment:
+  setup-zed [--write]            Merge Zed settings/tasks/keymap snippets (dry-run by default)
+  update                         Update zaw itself
+  uninstall [--purge]            Remove zaw from this machine
+
+Docs: https://github.com/shikibu9419/zed-academic-writing-macos
+EOF
+}
+
+cmd=${1:-}
+case "$cmd" in
+  '' | -h | --help | help)
+    usage
+    exit 0
+    ;;
+  -v | --version | version)
+    printf 'zaw %s\n' "$ZAW_VERSION"
+    exit 0
+    ;;
+esac
+shift
+
+exec_path="$ZAW_PREFIX/libexec/zaw-$cmd"
+if [ ! -x "$exec_path" ]; then
+  printf 'zaw: unknown command: %s\n\n' "$cmd" >&2
+  usage >&2
+  exit 2
+fi
+exec "$exec_path" "$@"

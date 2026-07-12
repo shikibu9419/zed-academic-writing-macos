@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+usage() {
+  cat <<EOF
+Usage: zaw templates [list]
+       zaw templates default [<name> | --unset]
+       zaw templates add <name> <path | github-url> [--force]
+
+List available project templates, or manage those used by \`zaw new\`.
+
+  list                          List templates (built-in 'base' + user).
+  default                       Show the current default template.
+  default <name>                Set the default template for \`zaw new\`.
+  default --unset               Clear the default (revert to built-in 'base').
+  add <name> <path|github-url>  Install a template from a local directory or
+                                a GitHub repo (--force to overwrite).
+
+User templates live in $ZAW_DATA_DIR/templates/<name>/
+EOF
+}
+
+# The effective default template name (falls back to the built-in).
+effective_default() {
+  local d
+  d=$(zaw_config_get ZAW_TEMPLATE)
+  printf '%s\n' "${d:-base}"
+}
+
+# Does a template of this name exist?
+template_exists() {
+  [ "$1" = "base" ] || [ -d "$ZAW_DATA_DIR/templates/$1" ]
+}
+
+cmd_list() {
+  local default dir name
+  default=$(effective_default)
+  mark() { [ "$1" = "$default" ] && printf ' (default)'; }
+
+  printf 'base (built-in)%s\n' "$(mark base)"
+  if [ -d "$ZAW_DATA_DIR/templates" ]; then
+    for dir in "$ZAW_DATA_DIR/templates"/*/; do
+      [ -d "$dir" ] || continue
+      name=$(basename "$dir")
+      printf '%s (user: %s)%s\n' "$name" "${dir%/}" "$(mark "$name")"
+    done
+  fi
+}
+
+cmd_default() {
+  case "${1:-}" in
+    '')
+      effective_default
+      ;;
+    --unset | -)
+      zaw_config_unset ZAW_TEMPLATE
+      printf 'Default template cleared (using built-in base).\n'
+      ;;
+    -*)
+      msg "zaw templates default: unknown option: $1"
+      exit 2
+      ;;
+    *)
+      if ! template_exists "$1"; then
+        msg "zaw templates: unknown template: $1"
+        msg "Available templates:"
+        cmd_list >&2
+        exit 2
+      fi
+      zaw_config_set ZAW_TEMPLATE "$1"
+      printf 'Default template set to %s\n' "$1"
+      ;;
+  esac
+}
+
+# Normalize a source into a git-clonable URL, or return 1 if it is not a
+# GitHub/git reference. Accepts full URLs and `owner/repo` shorthand (which
+# must not look like a local path — no leading dot and exactly one slash).
+github_url() {
+  case "$1" in
+    https://github.com/* | git@github.com:* | ssh://* | git://* | https://*.git)
+      printf '%s\n' "$1"
+      ;;
+    *)
+      if printf '%s' "$1" | grep -qE '^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$'; then
+        printf 'https://github.com/%s\n' "$1"
+      else
+        return 1
+      fi
+      ;;
+  esac
+}
+
+# Shallow-clone a git repo into $2 and strip its VCS history. Requires git.
+fetch_repo() {
+  local url=$1 dest=$2
+  if ! command -v git >/dev/null 2>&1; then
+    msg "zaw templates add: git is required to add a template from a URL."
+    return 1
+  fi
+  git clone --depth 1 -q "$url" "$dest" || return 1
+  rm -rf "$dest/.git"
+}
+
+cmd_add() {
+  local force=0 name="" src="" arg dest url
+  for arg in "$@"; do
+    case "$arg" in
+      --force | -f) force=1 ;;
+      -*)
+        msg "zaw templates add: unknown option: $arg"
+        exit 2
+        ;;
+      *)
+        if [ -z "$name" ]; then
+          name=$arg
+        elif [ -z "$src" ]; then
+          src=$arg
+        else
+          msg "zaw templates add: unexpected argument: $arg"
+          exit 2
+        fi
+        ;;
+    esac
+  done
+
+  if [ -z "$name" ] || [ -z "$src" ]; then
+    msg "Usage: zaw templates add <name> <path | github-url> [--force]"
+    exit 2
+  fi
+
+  case "$name" in
+    base)
+      msg "zaw templates add: 'base' is the built-in template name."
+      exit 2
+      ;;
+    */* | .*)
+      msg "zaw templates add: invalid template name: $name"
+      exit 2
+      ;;
+  esac
+
+  dest="$ZAW_DATA_DIR/templates/$name"
+  if [ -e "$dest" ]; then
+    if [ "$force" = "1" ]; then
+      rm -rf "$dest"
+    else
+      msg "zaw templates add: template already exists: $dest"
+      msg "Use --force to overwrite."
+      exit 1
+    fi
+  fi
+  mkdir -p "$ZAW_DATA_DIR/templates"
+
+  if [ -d "$src" ]; then
+    mkdir -p "$dest"
+    cp -R "$src/." "$dest/"
+    rm -rf "$dest/.git"
+  elif url=$(github_url "$src"); then
+    if ! fetch_repo "$url" "$dest"; then
+      rm -rf "$dest"
+      exit 1
+    fi
+  else
+    msg "zaw templates add: '$src' is neither an existing directory nor a GitHub URL/owner-repo."
+    exit 2
+  fi
+
+  if ! find "$dest" -type f -name '*.tex' -print -quit | grep -q .; then
+    msg "Warning: no .tex file found in the added template."
+  fi
+
+  printf 'Added template %s -> %s\n' "$name" "$dest"
+  printf 'Use it:      zaw new paper --template %s\n' "$name"
+  printf 'Set default: zaw templates default %s\n' "$name"
+}
+
+case "${1:-list}" in
+  -h | --help)
+    usage
+    ;;
+  list)
+    cmd_list
+    ;;
+  default)
+    shift
+    cmd_default "$@"
+    ;;
+  add)
+    shift
+    cmd_add "$@"
+    ;;
+  *)
+    msg "zaw templates: unknown subcommand: $1"
+    usage >&2
+    exit 2
+    ;;
+esac

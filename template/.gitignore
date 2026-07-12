@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+.env.local
+*.log
+*.aux
+*.fls
+*.fdb_latexmk
+*.synctex.gz

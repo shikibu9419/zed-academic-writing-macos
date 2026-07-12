@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+REPO="shikibu9419/zed-academic-writing-macos"
+
+case "$ZAW_PREFIX" in
+  "$ZAW_DATA_DIR/app")
+    msg "Re-fetching the latest release..."
+    curl -fsSL "https://raw.githubusercontent.com/$REPO/main/install.sh" | sh
+    ;;
+  */Cellar/* | */homebrew/*)
+    msg "Installed via Homebrew. Update with:"
+    msg "  brew update && brew upgrade zed-academic-writing-macos"
+    exit 1
+    ;;
+  /nix/store/*)
+    msg "Installed via Nix. Update with:"
+    msg "  nix profile upgrade github:$REPO"
+    exit 1
+    ;;
+  *)
+    if [ -d "$ZAW_PREFIX/.git" ]; then
+      git -C "$ZAW_PREFIX" pull --ff-only
+    else
+      msg "Unrecognized install location: $ZAW_PREFIX"
+      msg "Reinstall with:"
+      msg "  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | sh"
+      exit 1
+    fi
+    ;;
+esac

@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+usage() {
+  cat <<EOF
+Usage: zaw init [<dir>]
+
+Set up an existing LaTeX project for zaw:
+  - generate .env.local with the detected root TeX file
+  - add AGENTS.md and .gitignore from the template when absent
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+esac
+
+target=${1:-$PWD}
+if [ ! -d "$target" ]; then
+  msg "zaw init: not a directory: $target"
+  exit 2
+fi
+root=$(cd "$target" && pwd)
+
+zaw_load_config "$root"
+
+if [ -f "$root/.env.local" ]; then
+  printf 'Kept existing .env.local\n'
+else
+  root_tex=$(ZED_LATEX_ROOT="" find_root_tex "$root" "")
+  rel_root_tex=${root_tex#"$root"/}
+  cat > "$root/.env.local" <<EOF
+# Project-local zaw settings (gitignored).
+# Global defaults: ${ZAW_CONFIG_DIR}/config.env
+ZED_LATEX_ROOT=$rel_root_tex
+EOF
+  printf 'Wrote .env.local (ZED_LATEX_ROOT=%s)\n' "$rel_root_tex"
+fi
+
+# Re-read so AGENTS.md below names the actual root file.
+zaw_load_config "$root"
+rel_root_tex=${ZED_LATEX_ROOT:-main.tex}
+
+if [ -f "$root/AGENTS.md" ]; then
+  printf 'Kept existing AGENTS.md\n'
+elif [ -f "$ZAW_PREFIX/template/AGENTS.md" ]; then
+  sed "s/main\.tex/$(printf '%s' "$rel_root_tex" | sed 's/[\/&]/\\&/g')/g; s/main\.log/$(printf '%s' "${rel_root_tex%.tex}.log" | sed 's/[\/&]/\\&/g')/g" \
+    "$ZAW_PREFIX/template/AGENTS.md" > "$root/AGENTS.md"
+  printf 'Wrote AGENTS.md\n'
+fi
+
+if [ ! -f "$root/.gitignore" ]; then
+  if [ -f "$ZAW_PREFIX/template/gitignore" ]; then
+    cp "$ZAW_PREFIX/template/gitignore" "$root/.gitignore"
+    printf 'Wrote .gitignore\n'
+  fi
+else
+  for entry in '.build/' '.env.local'; do
+    if ! grep -qxF "$entry" "$root/.gitignore"; then
+      printf '%s\n' "$entry" >> "$root/.gitignore"
+      printf 'Appended %s to .gitignore\n' "$entry"
+    fi
+  done
+fi
+
+zaw_init_vcs "$root"
+
+printf 'Done. Build with: zaw build %s\n' "$rel_root_tex"

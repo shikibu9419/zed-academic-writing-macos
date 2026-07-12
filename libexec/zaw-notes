@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+RENDER_NOTES="$ZAW_LIBEXEC/zaw-render-notes"
+open_after=${ZAW_NOTES_OPEN:-0}
+
+for arg in "$@"; do
+  case "$arg" in
+    --open)
+      open_after=1
+      ;;
+  esac
+done
+
+zaw_resolve_root "$@"
+root=$ZAW_ROOT
+zaw_load_config "$root"
+
+pdf_path=$(zaw_pdf_path "$root" "$ZAW_TEX_ARG")
+root_tex=$ZAW_ROOT_TEX
+build_dir=$ZAW_BUILD_DIR
+notes_path="$build_dir/skim-notes.md"
+plist_notes_path="$build_dir/skim-notes.plist"
+link_text="[skim-notes.md]($notes_path)"
+
+if [ ! -x "$ZAW_SKIM_SKIMNOTES" ]; then
+  msg "skimnotes not found: $ZAW_SKIM_SKIMNOTES"
+  exit 1
+fi
+
+if [ ! -x "$RENDER_NOTES" ]; then
+  msg "notes renderer not found: $RENDER_NOTES"
+  exit 1
+fi
+
+zaw_require_pdf "$pdf_path"
+
+mkdir -p "$build_dir"
+
+"$ZAW_SKIM_SKIMNOTES" get -format plist "$pdf_path" "$plist_notes_path"
+"$RENDER_NOTES" "$plist_notes_path" "$pdf_path" "$root_tex" "$root" "$ZED_LATEX_IMAGE" > "$notes_path"
+
+if [ "${ZAW_PRINT_ONLY:-}" = "1" ]; then
+  printf '%s\n' "$notes_path"
+  printf '%s\n' "$link_text"
+  exit 0
+fi
+
+if [ "$open_after" = "1" ]; then
+  zaw_open_in_zed -e "$notes_path"
+fi
+
+printf 'Exported Skim notes: %s\n' "$notes_path"
+printf 'File link: %s\n' "$link_text"

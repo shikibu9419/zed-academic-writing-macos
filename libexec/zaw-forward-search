@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+source_file=${1:-${ZED_FILE:-}}
+source_row=${2:-${ZED_ROW:-}}
+
+if [ -z "$source_file" ]; then
+  msg "Usage: zaw forward-search <file.tex> <line>"
+  exit 2
+fi
+
+if [ -z "$source_row" ]; then
+  source_row=0
+fi
+
+case "$source_row" in
+  '' | *[!0-9]*)
+    msg "Invalid line number: $source_row"
+    exit 2
+    ;;
+esac
+
+if [ ! -x "$ZAW_SKIM_DISPLAYLINE" ]; then
+  msg "Skim displayline not found: $ZAW_SKIM_DISPLAYLINE"
+  exit 1
+fi
+
+if is_abs "$source_file"; then
+  source_abs="$source_file"
+else
+  source_abs="$PWD/$source_file"
+fi
+
+root=$(find_root_from "$source_abs")
+zaw_load_config "$root"
+
+pdf_path=$(zaw_pdf_path "$root" "$source_abs")
+zaw_require_pdf "$pdf_path"
+
+if [ "${ZAW_PRINT_ONLY:-}" = "1" ]; then
+  printf '%s\n%s\n%s\n' "$source_row" "$pdf_path" "$source_abs"
+  exit 0
+fi
+
+"$ZAW_SKIM_DISPLAYLINE" -r -g -z "$source_row" "$pdf_path" "$source_abs"

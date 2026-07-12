@@ -1,0 +1,253 @@
+# shellcheck shell=bash
+# Shared helpers sourced by zaw subcommands. Not executable on its own.
+
+ZAW_CONFIG_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/zaw
+ZAW_DATA_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/zaw
+ZAW_DEFAULT_IMAGE="ghcr.io/ayaka-notes/texlive-full:2025.1"
+ZAW_DEFAULT_MODE="auto"
+ZAW_DEFAULT_OUT_DIR=".build"
+ZAW_SKIM_DISPLAYLINE="/Applications/Skim.app/Contents/SharedSupport/displayline"
+ZAW_SKIM_SKIMNOTES="/Applications/Skim.app/Contents/SharedSupport/skimnotes"
+ZAW_ZED_APP_CLI="/Applications/Zed.app/Contents/MacOS/cli"
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+is_abs() {
+  case "$1" in
+    /*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# First *.tex among the arguments, if any.
+find_arg_tex() {
+  for arg in "$@"; do
+    case "$arg" in
+      *.tex)
+        printf '%s\n' "$arg"
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+# Walk upward from a file or directory to the project root: the first
+# directory carrying a zaw config, a latexmk config, or a git repository.
+find_root_from() {
+  start="$1"
+  if [ -f "$start" ]; then
+    dir=$(cd "$(dirname "$start")" && pwd)
+  else
+    dir=$(cd "$start" && pwd)
+  fi
+
+  while :; do
+    if [ -f "$dir/.env.local" ] ||
+      [ -f "$dir/latexmkrc" ] ||
+      [ -f "$dir/.latexmkrc" ] ||
+      [ -d "$dir/.git" ]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+
+    parent=$(dirname "$dir")
+    if [ "$parent" = "$dir" ]; then
+      pwd
+      return 0
+    fi
+    dir="$parent"
+  done
+}
+
+# Resolve the root TeX document for a project.
+#   $1 root directory
+#   $2 candidate .tex argument (may be empty)
+#   $3 "fallback" to return $2 even when no \documentclass was found
+find_root_tex() {
+  root="$1"
+  tex_arg="$2"
+  fallback="${3:-}"
+
+  if [ -n "${ZED_LATEX_ROOT:-}" ]; then
+    if is_abs "$ZED_LATEX_ROOT"; then
+      printf '%s\n' "$ZED_LATEX_ROOT"
+    else
+      printf '%s/%s\n' "$root" "$ZED_LATEX_ROOT"
+    fi
+    return 0
+  fi
+
+  if [ -n "$tex_arg" ]; then
+    if is_abs "$tex_arg"; then
+      candidate="$tex_arg"
+    else
+      candidate="$PWD/$tex_arg"
+    fi
+    if [ -f "$candidate" ] && grep -Eq '\\documentclass|\\begin[[:space:]]*\{document\}' "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  found=$(
+    find "$root" -type f -name '*.tex' \
+      ! -path "$root/.git/*" \
+      ! -path "$root/.build/*" \
+      ! -path "$root/.zed/*" \
+      -exec grep -El '\\documentclass|\\begin[[:space:]]*\{document\}' {} \; | head -n 1
+  )
+  if [ -n "$found" ]; then
+    printf '%s\n' "$found"
+    return 0
+  fi
+
+  if [ "$fallback" = "fallback" ] && [ -n "$tex_arg" ]; then
+    if is_abs "$tex_arg"; then
+      printf '%s\n' "$tex_arg"
+    else
+      printf '%s/%s\n' "$PWD" "$tex_arg"
+    fi
+    return 0
+  fi
+
+  msg "No TeX root document found."
+  exit 2
+}
+
+# Load configuration with precedence:
+#   process env > project .env.local > global config.env > defaults
+# Sets ZED_LATEX_IMAGE / ZED_LATEX_MODE / ZED_LATEX_ROOT / ZED_LATEX_OUT_DIR.
+zaw_load_config() {
+  _zaw_root=$1
+  _ov_image=${ZED_LATEX_IMAGE-}
+  _ov_mode=${ZED_LATEX_MODE-}
+  _ov_root=${ZED_LATEX_ROOT-}
+  _ov_out=${ZED_LATEX_OUT_DIR-}
+
+  if [ -f "$ZAW_CONFIG_DIR/config.env" ]; then
+    # shellcheck disable=SC1091
+    . "$ZAW_CONFIG_DIR/config.env"
+  fi
+
+  if [ -f "$_zaw_root/.env.local" ]; then
+    # shellcheck disable=SC1091
+    . "$_zaw_root/.env.local"
+  fi
+
+  if [ -n "$_ov_image" ]; then ZED_LATEX_IMAGE=$_ov_image; fi
+  if [ -n "$_ov_mode" ]; then ZED_LATEX_MODE=$_ov_mode; fi
+  if [ -n "$_ov_root" ]; then ZED_LATEX_ROOT=$_ov_root; fi
+  if [ -n "$_ov_out" ]; then ZED_LATEX_OUT_DIR=$_ov_out; fi
+
+  ZED_LATEX_IMAGE=${ZED_LATEX_IMAGE:-$ZAW_DEFAULT_IMAGE}
+  ZED_LATEX_MODE=${ZED_LATEX_MODE:-$ZAW_DEFAULT_MODE}
+  ZED_LATEX_OUT_DIR=${ZED_LATEX_OUT_DIR:-$ZAW_DEFAULT_OUT_DIR}
+}
+
+# Compute the build dir (absolute) for a project root + configured out dir.
+zaw_build_dir() {
+  if is_abs "$ZED_LATEX_OUT_DIR"; then
+    printf '%s\n' "$ZED_LATEX_OUT_DIR"
+  else
+    printf '%s/%s\n' "$1" "$ZED_LATEX_OUT_DIR"
+  fi
+}
+
+# Resolve the project root from a subcommand's arguments: the first *.tex
+# among them, else $PWD. Sets ZAW_TEX_ARG (may be empty) and ZAW_ROOT.
+zaw_resolve_root() {
+  ZAW_TEX_ARG=$(find_arg_tex "$@" || true)
+  if [ -n "$ZAW_TEX_ARG" ] && is_abs "$ZAW_TEX_ARG"; then
+    ZAW_ROOT=$(find_root_from "$ZAW_TEX_ARG")
+  elif [ -n "$ZAW_TEX_ARG" ]; then
+    ZAW_ROOT=$(find_root_from "$PWD/$ZAW_TEX_ARG")
+  else
+    ZAW_ROOT=$(find_root_from "$PWD")
+  fi
+}
+
+# Derive the built PDF path for a project.
+#   $1 project root, $2 candidate .tex argument (may be empty)
+# Sets ZAW_ROOT_TEX and ZAW_BUILD_DIR; prints the PDF path.
+zaw_pdf_path() {
+  ZAW_ROOT_TEX=$(find_root_tex "$1" "$2")
+  ZAW_BUILD_DIR=$(zaw_build_dir "$1")
+  _base=$(basename "$ZAW_ROOT_TEX")
+  printf '%s/%s.pdf\n' "$ZAW_BUILD_DIR" "${_base%.tex}"
+}
+
+# Fail with the standard "build first" message unless the PDF exists.
+zaw_require_pdf() {
+  if [ ! -f "$1" ]; then
+    msg "PDF not found: $1"
+    msg "Run the LaTeX build task first."
+    exit 1
+  fi
+}
+
+# --- global config.env (KEY=value, also sourced by zaw_load_config) --------
+
+# Print the value of KEY from the global config, or nothing if unset.
+zaw_config_get() {
+  _cfg="$ZAW_CONFIG_DIR/config.env"
+  [ -f "$_cfg" ] || return 0
+  _val=$(sed -n -E "s/^[[:space:]]*$1=(.*)$/\1/p" "$_cfg" | tail -n1)
+  case "$_val" in
+    \"*\") _val=${_val#\"}; _val=${_val%\"} ;;
+    \'*\') _val=${_val#\'}; _val=${_val%\'} ;;
+  esac
+  printf '%s\n' "$_val"
+}
+
+# Upsert KEY=VALUE in the global config (last assignment wins). The temp file
+# is created in the config dir so the rename is atomic on the same filesystem.
+zaw_config_set() {
+  mkdir -p "$ZAW_CONFIG_DIR"
+  _cfg="$ZAW_CONFIG_DIR/config.env"
+  _tmp=$(mktemp "$ZAW_CONFIG_DIR/config.env.XXXXXX")
+  if [ -f "$_cfg" ]; then
+    # grep exit 1 means "no line matched" (fine); only a real error (>1) fails.
+    grep -vE "^[[:space:]]*$1=" "$_cfg" > "$_tmp" || [ $? -eq 1 ]
+  fi
+  printf '%s=%s\n' "$1" "$2" >> "$_tmp"
+  mv "$_tmp" "$_cfg"
+}
+
+# Remove KEY from the global config.
+zaw_config_unset() {
+  _cfg="$ZAW_CONFIG_DIR/config.env"
+  [ -f "$_cfg" ] || return 0
+  _tmp=$(mktemp "$ZAW_CONFIG_DIR/config.env.XXXXXX")
+  grep -vE "^[[:space:]]*$1=" "$_cfg" > "$_tmp" || [ $? -eq 1 ]
+  mv "$_tmp" "$_cfg"
+}
+
+# Initialize version control in a directory: `git init` when git is present
+# and no repo exists yet, plus a colocated Jujutsu repo when `jj` is
+# available. Idempotent — safe to call on an already-initialized directory.
+zaw_init_vcs() {
+  _dir=$1
+  if command -v git >/dev/null 2>&1 && [ ! -d "$_dir/.git" ]; then
+    git -C "$_dir" init -q
+  fi
+  if command -v jj >/dev/null 2>&1 && [ ! -d "$_dir/.jj" ]; then
+    if ! (cd "$_dir" && jj git init --colocate); then
+      msg "warning: 'jj git init --colocate' failed in $_dir"
+    fi
+  fi
+}
+
+# Open a path in Zed: prefer `zed` on PATH, then the app-bundled CLI.
+zaw_open_in_zed() {
+  if command -v zed >/dev/null 2>&1; then
+    zed "$@"
+  elif [ -x "$ZAW_ZED_APP_CLI" ]; then
+    "$ZAW_ZED_APP_CLI" "$@"
+  else
+    msg "Zed CLI not found. Open manually: $*"
+    return 1
+  fi
+}

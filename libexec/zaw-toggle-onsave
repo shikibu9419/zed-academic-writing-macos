@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+# Toggle `texlab.build.onSave` in the user's Zed settings. Operates on the
+# raw text so surrounding JSONC comments are preserved.
+
+settings_path="${ZAW_ZED_CONFIG_DIR:-$HOME/.config/zed}/settings.json"
+
+if [ ! -f "$settings_path" ]; then
+  msg "Zed settings not found: $settings_path"
+  exit 1
+fi
+
+current=$(grep -oE '"onSave"[[:space:]]*:[[:space:]]*(true|false)' "$settings_path" |
+  grep -oE 'true|false' | head -n1)
+
+if [ -z "$current" ]; then
+  msg 'Could not find `"onSave": true/false` in Zed settings.'
+  msg 'Run `zaw setup-zed --write` first.'
+  exit 1
+fi
+
+if [ "$current" = "true" ]; then
+  updated="false"
+else
+  updated="true"
+fi
+
+sed -i '' -E "s/(\"onSave\"[[:space:]]*:[[:space:]]*)(true|false)/\1$updated/" "$settings_path"
+
+printf 'texlab.build.onSave: %s -> %s\n' "$current" "$updated"

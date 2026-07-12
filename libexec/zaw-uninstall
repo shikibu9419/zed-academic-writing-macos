@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+usage() {
+  cat <<EOF
+Usage: zaw uninstall [--purge] [--yes]
+
+Removes:
+  - the 'zaw' symlink from ~/.local/bin
+  - the downloaded app payload ($ZAW_DATA_DIR/app), when present
+
+With --purge, also removes user data and config after confirmation:
+  - $ZAW_DATA_DIR (including your custom templates)
+  - $ZAW_CONFIG_DIR
+
+Zed config merged by 'zaw setup-zed' is left untouched (backups are next
+to the files). Homebrew/Nix installs: remove the package with brew/nix
+afterwards.
+EOF
+}
+
+purge=0
+assume_yes=0
+for arg in "$@"; do
+  case "$arg" in
+    --purge) purge=1 ;;
+    --yes | -y) assume_yes=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      msg "zaw uninstall: unknown option: $arg"
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+bin_link="$HOME/.local/bin/zaw"
+if [ -L "$bin_link" ]; then
+  rm -f "$bin_link"
+  printf 'Removed %s\n' "$bin_link"
+elif [ -e "$bin_link" ]; then
+  msg "Skipped $bin_link (not a symlink — not created by the installer)"
+fi
+
+if [ -d "$ZAW_DATA_DIR/app" ]; then
+  rm -rf "$ZAW_DATA_DIR/app"
+  printf 'Removed %s\n' "$ZAW_DATA_DIR/app"
+fi
+
+if [ "$purge" = "1" ]; then
+  confirm() {
+    if [ "$assume_yes" = "1" ]; then
+      return 0
+    fi
+    printf 'Remove %s? [y/N] ' "$1"
+    read -r reply
+    case "$reply" in
+      y | Y | yes) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+  if [ -d "$ZAW_DATA_DIR" ] && confirm "$ZAW_DATA_DIR (includes your custom templates)"; then
+    rm -rf "$ZAW_DATA_DIR"
+    printf 'Removed %s\n' "$ZAW_DATA_DIR"
+  fi
+  if [ -d "$ZAW_CONFIG_DIR" ] && confirm "$ZAW_CONFIG_DIR"; then
+    rm -rf "$ZAW_CONFIG_DIR"
+    printf 'Removed %s\n' "$ZAW_CONFIG_DIR"
+  fi
+fi
+
+case "$ZAW_PREFIX" in
+  */Cellar/* | */homebrew/*)
+    msg "Note: installed via Homebrew — also run: brew uninstall zed-academic-writing-macos"
+    ;;
+  /nix/store/*)
+    msg "Note: installed via Nix — also run: nix profile remove (see 'nix profile list')"
+    ;;
+esac
+
+printf 'Done.\n'

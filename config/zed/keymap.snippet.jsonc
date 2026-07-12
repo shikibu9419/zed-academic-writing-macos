@@ -1,0 +1,43 @@
+// Merged into ~/.config/zed/keymap.json by `zaw setup-zed`.
+// Only the cmd-enter binding is required for the writing loop; the rest are
+// optional convenience bindings and are skipped with a warning when they
+// conflict with your existing keymap.
+[
+  {
+    "context": "Editor && mode == full && extension == tex",
+    "bindings": {
+      "cmd-enter": [
+        "task::Spawn",
+        {
+          "task_name": "LaTeX: Docker build"
+        }
+      ]
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "ctrl-t": "terminal_panel::Toggle",
+      "ctrl-,": "agent::AddSelectionToThread",
+      "ctrl-.": ["workspace::ActivatePane", 0]
+    }
+  },
+  {
+    "context": "Editor && VimControl && vim_mode == visual && !menu",
+    "bindings": {
+      "ctrl-,": "agent::AddSelectionToThread"
+    }
+  },
+  {
+    "context": "Editor && VimControl && vim_mode != visual && !menu",
+    "bindings": {
+      "ctrl-,": "agent::FocusAgent"
+    }
+  },
+  {
+    "context": "AgentPanel",
+    "bindings": {
+      "ctrl-.": ["workspace::ActivatePane", 0]
+    }
+  }
+]

@@ -1,0 +1,96 @@
+// Merged into ~/.config/zed/tasks.json by `zaw setup-zed`.
+// __HOME__ is replaced with your home directory at merge time so the tasks
+// work regardless of the shell PATH Zed spawns tasks with.
+[
+  {
+    "label": "LaTeX: Docker build",
+    "command": "__HOME__/.local/bin/zaw",
+    "args": [
+      "build",
+      "-synctex=1",
+      "-interaction=nonstopmode",
+      "-file-line-error",
+      "-halt-on-error",
+      "$ZED_FILE"
+    ],
+    "tags": ["latex-build"],
+    "allow_concurrent_runs": false,
+    "reveal": "no_focus",
+    "hide": "on_success",
+    "save": "all"
+  },
+  {
+    "label": "LaTeX: Docker pdflatex",
+    "command": "__HOME__/.local/bin/zaw",
+    "args": [
+      "build",
+      "-synctex=1",
+      "-interaction=nonstopmode",
+      "-file-line-error",
+      "-halt-on-error",
+      "$ZED_FILE"
+    ],
+    "env": {
+      "ZED_LATEX_MODE": "pdflatex"
+    },
+    "tags": ["latex-build"],
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "never",
+    "save": "all"
+  },
+  {
+    "label": "LaTeX: Docker latexmkrc",
+    "command": "__HOME__/.local/bin/zaw",
+    "args": [
+      "build",
+      "-synctex=1",
+      "-interaction=nonstopmode",
+      "-file-line-error",
+      "-halt-on-error",
+      "$ZED_FILE"
+    ],
+    "env": {
+      "ZED_LATEX_MODE": "latexmkrc"
+    },
+    "tags": ["latex-build"],
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "never",
+    "save": "all"
+  },
+  {
+    "label": "LaTeX: Open PDF in Skim",
+    "command": "__HOME__/.local/bin/zaw",
+    "args": ["open-pdf", "$ZED_FILE"],
+    "allow_concurrent_runs": false,
+    "reveal": "never",
+    "hide": "always"
+  },
+  {
+    "label": "LaTeX: Forward Search in Skim",
+    "command": "__HOME__/.local/bin/zaw",
+    "args": ["forward-search", "$ZED_FILE", "$ZED_ROW"],
+    "allow_concurrent_runs": true,
+    "reveal": "never",
+    "hide": "always",
+    "save": "current"
+  },
+  {
+    "label": "LaTeX: Open Skim Notes",
+    "command": "__HOME__/.local/bin/zaw",
+    "args": ["notes", "--open", "$ZED_FILE"],
+    "allow_concurrent_runs": false,
+    "reveal": "no_focus",
+    "hide": "on_success",
+    "save": "current"
+  },
+  {
+    "label": "LaTeX: Toggle Build On Save",
+    "command": "__HOME__/.local/bin/zaw",
+    "args": ["toggle-onsave"],
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "never"
+  }
+]

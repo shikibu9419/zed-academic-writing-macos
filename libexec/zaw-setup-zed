@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+usage() {
+  cat <<EOF
+Usage: zaw setup-zed [--write]
+
+Merge zaw's Zed config snippets (settings, tasks, keymap) into
+~/.config/zed/. Existing values are never overwritten — conflicts are
+reported as warnings. Without --write this is a dry run.
+
+A timestamped backup of each modified file is written next to it.
+Note: JSONC comments in merged files are not preserved (the backup keeps
+the original).
+
+Exit status: 1 if any conflict was found (in both dry-run and --write).
+EOF
+}
+
+mode="dry-run"
+case "${1:-}" in
+  '' | --dry-run) ;;
+  --write)
+    mode="write"
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    msg "zaw setup-zed: unknown option: $1"
+    usage >&2
+    exit 2
+    ;;
+esac
+
+zed_dir=${ZAW_ZED_CONFIG_DIR:-$HOME/.config/zed}
+snippet_dir="$ZAW_PREFIX/config/zed"
+jsonc="$ZAW_LIBEXEC/zaw-jsonc.awk"
+merge="$ZAW_LIBEXEC/zaw-setup-zed.jq"
+
+for f in settings tasks keymap; do
+  if [ ! -f "$snippet_dir/$f.snippet.jsonc" ]; then
+    msg "Snippet missing: $snippet_dir/$f.snippet.jsonc (broken install?)"
+    exit 1
+  fi
+done
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# texlab spawns its executable directly (no PATH resolution), so the
+# snippet carries a __HOME__ placeholder rendered here.
+for f in settings tasks keymap; do
+  sed "s|__HOME__|$HOME|g" "$snippet_dir/$f.snippet.jsonc" > "$tmp/$f.jsonc"
+done
+
+if ! command -v jq >/dev/null 2>&1; then
+  msg "jq not found — cannot merge automatically (brew install jq)."
+  msg "Merge these rendered snippets into $zed_dir manually:"
+  mkdir -p "$ZAW_DATA_DIR/zed"
+  for f in settings tasks keymap; do
+    out="$ZAW_DATA_DIR/zed/$f.snippet.json"
+    cp "$tmp/$f.jsonc" "$out"
+    msg "  $out -> $zed_dir/$f.json"
+  done
+  exit 1
+fi
+
+# Load a JSONC file as compact JSON, or fall back to $2 when absent/empty.
+load_json() {
+  if [ -f "$1" ] && [ -s "$1" ]; then
+    stripped=$(awk -f "$jsonc" "$1")
+    if ! printf '%s' "$stripped" | jq -e . >/dev/null 2>&1; then
+      msg "ERROR: could not parse $1"
+      msg "Fix the file (or restore a backup) and rerun."
+      exit 1
+    fi
+    printf '%s' "$stripped"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+mkdir -p "$zed_dir"
+total_conflicts=0
+
+for f in settings tasks keymap; do
+  case "$f" in
+    settings) empty="{}" ;;
+    *) empty="[]" ;;
+  esac
+
+  target="$zed_dir/$f.json"
+  existing=$(load_json "$target" "$empty")
+  incoming=$(load_json "$tmp/$f.jsonc" "$empty")
+
+  merged=$(printf '%s' "$existing" | jq \
+    --argjson incoming "$incoming" \
+    --arg kind "$f" \
+    -f "$merge")
+
+  warns=$(printf '%s' "$merged" | jq -r '.entries[] | select(.t == "warn") | .m')
+  adds=$(printf '%s' "$merged" | jq -r '.entries[] | select(.t == "add") | .m')
+
+  printf '== %s.json ==\n' "$f"
+  if [ -n "$warns" ]; then
+    while IFS= read -r w; do printf '  WARN: %s\n' "$w"; total_conflicts=$((total_conflicts + 1)); done <<EOF
+$warns
+EOF
+  fi
+  if [ -z "$adds" ]; then
+    printf '  nothing to add\n'
+  else
+    while IFS= read -r a; do
+      if [ "$mode" = "write" ]; then printf '  %s\n' "$a"; else printf '  would %s\n' "$a"; fi
+    done <<EOF
+$adds
+EOF
+  fi
+
+  if [ "$mode" = "write" ] && [ -n "$adds" ]; then
+    if [ -f "$target" ]; then
+      backup="$target.zaw-bak-$(date +%Y%m%d%H%M%S)"
+      cp "$target" "$backup"
+      printf '  backup: %s\n' "$backup"
+    fi
+    printf '%s' "$merged" | jq '.result' > "$target"
+    printf '  wrote %s\n' "$target"
+  fi
+done
+
+if [ "$mode" = "dry-run" ]; then
+  printf '\nDry run only. Apply with: zaw setup-zed --write\n'
+fi
+
+if [ "$total_conflicts" -gt 0 ]; then
+  printf '%d conflict(s) — kept your values; adjust manually if wanted.\n' "$total_conflicts"
+  exit 1
+fi

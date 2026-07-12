@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+set -eu
+
+# Internal: render a Skim notes plist as Markdown with SyncTeX-derived
+# source links. Called by `zaw notes`.
+#
+# Usage: zaw-render-notes PLIST PDF ROOT_TEX ROOT TEX_IMAGE
+#
+# Output language defaults to English; set ZAW_NOTES_LANG=ja (env or
+# ~/.config/zaw/config.env) for Japanese.
+
+plist_path=${1:-}
+pdf_path=${2:-}
+root_tex=${3:-}
+root=${4:-}
+tex_image=${5:-}
+
+if [ -z "$plist_path" ] || [ -z "$pdf_path" ] || [ -z "$root_tex" ] || [ -z "$root" ] || [ -z "$tex_image" ]; then
+  printf 'Usage: zaw-render-notes PLIST PDF ROOT_TEX ROOT TEX_IMAGE\n' >&2
+  exit 2
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  printf 'zaw notes: jq is required (brew install jq)\n' >&2
+  exit 1
+fi
+
+lang=${ZAW_NOTES_LANG:-en}
+case "$lang" in
+  ja)
+    preamble1="以下はユーザがPDFに注釈したコメントである。これらの指示に対応すること。"
+    preamble2="TeX sourceはSyncTeXによる逆引き推定であり、注釈位置に最も近い行を示しています。"
+    empty1="Skimから抽出できるnote/commentはまだありません。"
+    empty3="Skimで注釈を追加した直後の場合、Skim側でPDFを保存してからこのコマンドを再実行してください。"
+    empty4="この抽出は、保存済みPDFのSkim notesまたはPDF bundle内のnotesを読み取ります。"
+    no_comment="(コメントなし)"
+    ;;
+  *)
+    preamble1="The user annotated the PDF with the comments below. Address each instruction."
+    preamble2="TeX source locations are estimated via reverse SyncTeX lookup and point at the line closest to each annotation."
+    empty1="No Skim notes/comments could be extracted yet."
+    empty3="If you just added annotations in Skim, save the PDF in Skim first and rerun this command."
+    empty4="The export reads Skim notes from the saved PDF or its PDF bundle."
+    no_comment="(no comment)"
+    ;;
+esac
+
+notes_json=$(plutil -convert json -o - "$plist_path") || {
+  printf 'Could not read Skim notes plist: %s\n' "$plist_path" >&2
+  exit 1
+}
+
+count=$(printf '%s' "$notes_json" | jq 'if type=="array" then length else 0 end')
+
+# Page height (points) for the SyncTeX y-axis flip; optional.
+height=""
+if command -v pdfinfo >/dev/null 2>&1; then
+  height=$(pdfinfo "$pdf_path" | awk '/Page size:/ {print $5; exit}')
+fi
+
+rel_pdf=${pdf_path#"$root"/}
+created=$(date +%Y%m%d-%H%M%S)
+
+printf -- '---\n'
+printf 'created: %s\n' "$created"
+printf 'pdf: %s\n' "$pdf_path"
+printf 'root: %s\n' "$root_tex"
+printf -- '---\n\n'
+printf '# Skim PDF Annotations\n\n'
+printf '%s\n%s\n\n' "$preamble1" "$preamble2"
+printf -- '---\n\n'
+
+if [ "$count" -eq 0 ]; then
+  printf '%s\n\n%s\n%s\n\n' "$empty1" "$empty3" "$empty4"
+  printf -- '---\n'
+  exit 0
+fi
+
+# Resolve a SyncTeX query to Markdown source links (deduped). Reverse lookup
+# is best-effort per annotation: on failure the note just gets no source
+# link, so a failing synctex/docker call here is deliberately non-fatal.
+synctex_links() {
+  query=$1
+  if command -v synctex >/dev/null 2>&1; then
+    stx=$(synctex edit -o "$query" 2>/dev/null || true)
+  elif command -v docker >/dev/null 2>&1; then
+    stx=$(docker run --rm -v "$root:/work" -w /work "$tex_image" synctex edit -o "$query" 2>/dev/null || true)
+  else
+    return 0
+  fi
+
+  links=""
+  seen=""
+  current_input=""
+  while IFS= read -r line; do
+    case "$line" in
+      Input:*)
+        current_input=$(printf '%s' "${line#Input:}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s#^\./##')
+        ;;
+      Line:*)
+        [ -n "$current_input" ] || continue
+        num=${line#Line:}
+        case "$current_input" in
+          /*) abs="$current_input" ;;
+          *) abs="$root/$current_input" ;;
+        esac
+        key="$abs:$num"
+        case ",$seen," in
+          *",$key,"*) ;;
+          *)
+            seen="$seen,$key"
+            rel=${abs#"$root"/}
+            if [ -n "$links" ]; then
+              links="$links, [$rel]($abs:$num)"
+            else
+              links="[$rel]($abs:$num)"
+            fi
+            ;;
+        esac
+        current_input=""
+        ;;
+    esac
+  done <<EOF
+$stx
+EOF
+  printf '%s' "$links"
+}
+
+i=0
+while [ "$i" -lt "$count" ]; do
+  note=$(printf '%s' "$notes_json" | jq -c ".[$i]")
+  page=$(( $(printf '%s' "$note" | jq -r '(.pageIndex // 0) | floor') + 1 ))
+  content=$(printf '%s' "$note" | jq -r '.contents // ""' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+  bounds=$(printf '%s' "$note" | jq -r '.bounds // ""')
+  quad=$(printf '%s' "$note" | jq -r '.quadrilateralPoints // [] | if length > 0 then .[0] else "" end')
+
+  # Parse geometry and compute the PDF point + SyncTeX y (flipped).
+  geom=$(awk -v b="$bounds" -v q="$quad" -v h="$height" 'BEGIN {
+    bb = b; gsub(/[{}]/, "", bb)
+    n = split(bb, B, /[[:space:]]*,[[:space:]]*/)
+    if (n < 4) { print "0 0 0 0"; exit }
+    bx = B[1]; by = B[2]; bw = B[3]; bh = B[4]
+    have_quad = 0
+    if (q != "") {
+      qq = q; gsub(/[{}]/, "", qq)
+      m = split(qq, Q, /[[:space:]]*,[[:space:]]*/)
+      if (m >= 2) { qx = Q[1]; qy = Q[2]; have_quad = 1 }
+    }
+    if (have_quad) { px = bx + qx; py = by + qy } else { px = bx + bw / 2; py = by + bh / 2 }
+    if (h != "") { sy = h - py; ok = 1 } else { sy = 0; ok = 0 }
+    printf "%.3f %.3f %.3f %d\n", px, py, sy, ok
+  }')
+  set -- $geom
+  px=$1; sy=$3; ok=$4
+
+  links=""
+  if [ "$ok" = "1" ]; then
+    links=$(synctex_links "${page}:${px}:${sy}:${rel_pdf}")
+  fi
+
+  if [ -n "$links" ]; then
+    printf -- '- source: %s\n' "$links"
+  else
+    printf -- '- source: unavailable\n'
+  fi
+  if [ -z "$content" ]; then
+    printf -- '- comment: %s\n' "$no_comment"
+  else
+    printf -- '- comment: %s\n' "$content"
+  fi
+  printf '\n---\n\n'
+
+  i=$((i + 1))
+done

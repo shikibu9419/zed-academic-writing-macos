@@ -1,0 +1,33 @@
+// Merged into ~/.config/zed/settings.json by `zaw setup-zed`.
+// __HOME__ is replaced with your home directory at merge time
+// (texlab spawns this executable directly, so it needs an absolute path).
+{
+  "lsp": {
+    "texlab": {
+      "settings": {
+        "texlab": {
+          "build": {
+            "auxDirectory": ".build",
+            "logDirectory": ".build",
+            "pdfDirectory": ".build",
+            "onSave": false,
+            "forwardSearchAfter": false,
+            "executable": "__HOME__/.local/bin/zaw",
+            "args": [
+              "build",
+              "-synctex=1",
+              "-interaction=nonstopmode",
+              "-file-line-error",
+              "-halt-on-error",
+              "%f"
+            ]
+          },
+          "forwardSearch": {
+            "executable": "/Applications/Skim.app/Contents/SharedSupport/displayline",
+            "args": ["-r", "-z", "-b", "%l", "%p", "%f"]
+          }
+        }
+      }
+    }
+  }
+}
