@@ -6,9 +6,41 @@ ZAW_DATA_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/zaw
 ZAW_DEFAULT_IMAGE="ghcr.io/ayaka-notes/texlive-full:2025.1"
 ZAW_DEFAULT_MODE="auto"
 ZAW_DEFAULT_OUT_DIR=".build"
-ZAW_SKIM_DISPLAYLINE="/Applications/Skim.app/Contents/SharedSupport/displayline"
-ZAW_SKIM_SKIMNOTES="/Applications/Skim.app/Contents/SharedSupport/skimnotes"
 ZAW_ZED_APP_CLI="/Applications/Zed.app/Contents/MacOS/cli"
+ZAW_ZED_CONFIG_DIR=${ZAW_ZED_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zed}
+
+# Platform backends implement: open <pdf>, forward-search <pdf> <source>
+# <line>, and extract-notes <pdf> <output-plist>.
+zaw_pdf_backend() {
+  _platform=$(uname -s | tr '[:upper:]' '[:lower:]')
+  _backend="$ZAW_LIBEXEC/$_platform/pdf_preview"
+  if [ ! -x "$_backend" ]; then
+    msg "No PDF backend for platform: $_platform"
+    return 1
+  fi
+  printf '%s\n' "$_backend"
+}
+
+# Read zaw's PDF-preview option from Zed JSONC, with project settings taking
+# precedence over machine settings. Fail closed when the option is absent.
+zaw_pdf_preview_enabled() {
+  _preview=false
+  for _settings in "$ZAW_ZED_CONFIG_DIR/settings.json" "$1/.zed/settings.json"; do
+    [ -s "$_settings" ] || continue
+    if ! command -v jq >/dev/null 2>&1; then
+      msg 'jq is required to read enable_pdf_preview.'
+      exit 1
+    fi
+    _value=$(awk -f "$ZAW_LIBEXEC/zaw-jsonc.awk" "$_settings" |
+      jq -er 'if has("enable_pdf_preview") then
+        if (.enable_pdf_preview | type) == "boolean" then
+          .enable_pdf_preview | tostring
+        else error("enable_pdf_preview must be a boolean") end
+      else "unset" end') || exit 1
+    if [ "$_value" != "unset" ]; then _preview=$_value; fi
+  done
+  [ "$_preview" = "true" ]
+}
 
 msg() {
   printf '%s\n' "$*" >&2

@@ -7,11 +7,15 @@ ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
   cat <<EOF
-Usage: zaw setup-zed [--write]
+Usage: zaw setup-zed [--write] [--remote] [--project <dir>]
 
 Merge zaw's Zed config snippets (settings, tasks, keymap) into
 ~/.config/zed/. Existing values are never overwritten — conflicts are
 reported as warnings. Without --write this is a dry run.
+
+--remote         Configure server settings only; default PDF preview to false.
+--project <dir>  With --remote, also merge build tasks into <dir>/.zed/tasks.json.
+                 The project directory must already exist.
 
 A timestamped backup of each modified file is written next to it.
 Note: JSONC comments in merged files are not preserved (the backup keeps
@@ -22,8 +26,16 @@ EOF
 }
 
 mode="dry-run"
-case "${1:-}" in
-  '' | --dry-run) ;;
+remote=0
+project=""
+while [ $# -gt 0 ]; do
+case "$1" in
+  --dry-run) mode="dry-run" ;;
+  --remote) remote=1 ;;
+  --project)
+    project=${2:?--project requires a directory}
+    shift
+    ;;
   --write)
     mode="write"
     ;;
@@ -37,8 +49,15 @@ case "${1:-}" in
     exit 2
     ;;
 esac
+shift
+done
 
-zed_dir=${ZAW_ZED_CONFIG_DIR:-$HOME/.config/zed}
+if [ -n "$project" ] && { [ "$remote" != "1" ] || [ ! -d "$project" ]; }; then
+  msg '--project requires --remote and an existing project directory.'
+  exit 2
+fi
+
+zed_dir=${ZAW_ZED_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zed}
 snippet_dir="$ZAW_PREFIX/config/zed"
 jsonc="$ZAW_LIBEXEC/zaw-jsonc.awk"
 merge="$ZAW_LIBEXEC/zaw-setup-zed.jq"
@@ -50,17 +69,27 @@ for f in settings tasks keymap; do
   fi
 done
 
+enable_pdf_preview=false
+if [ "$remote" = "0" ] && [ "$(uname -s)" = "Darwin" ]; then enable_pdf_preview=true; fi
+files="settings tasks keymap"
+if [ "$remote" = "1" ]; then
+  files="settings"
+  if [ -n "$project" ]; then files="settings tasks"; fi
+fi
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # texlab spawns its executable directly (no PATH resolution), so the
 # snippet carries a __HOME__ placeholder rendered here.
 for f in settings tasks keymap; do
-  sed "s|__HOME__|$HOME|g" "$snippet_dir/$f.snippet.jsonc" > "$tmp/$f.jsonc"
+  sed -e "s|__HOME__|$HOME|g" \
+    -e "s|__ENABLE_PDF_PREVIEW__|$enable_pdf_preview|g" \
+    "$snippet_dir/$f.snippet.jsonc" > "$tmp/$f.jsonc"
 done
 
 if ! command -v jq >/dev/null 2>&1; then
-  msg "jq not found — cannot merge automatically (brew install jq)."
+  msg "jq not found — install jq with your package manager and rerun."
   msg "Merge these rendered snippets into $zed_dir manually:"
   mkdir -p "$ZAW_DATA_DIR/zed"
   for f in settings tasks keymap; do
@@ -69,6 +98,11 @@ if ! command -v jq >/dev/null 2>&1; then
     msg "  $out -> $zed_dir/$f.json"
   done
   exit 1
+fi
+
+if [ "$remote" = "0" ] && [ "$(uname -s)" != "Darwin" ]; then
+  sed 's/"cmd-enter"/"ctrl-enter"/g' "$tmp/keymap.jsonc" > "$tmp/keymap.filtered"
+  mv "$tmp/keymap.filtered" "$tmp/keymap.jsonc"
 fi
 
 # Load a JSONC file as compact JSON, or fall back to $2 when absent/empty.
@@ -86,16 +120,18 @@ load_json() {
   fi
 }
 
-mkdir -p "$zed_dir"
 total_conflicts=0
 
-for f in settings tasks keymap; do
+for f in $files; do
   case "$f" in
     settings) empty="{}" ;;
     *) empty="[]" ;;
   esac
 
   target="$zed_dir/$f.json"
+  if [ "$remote" = "1" ] && [ "$f" = "tasks" ]; then
+    target="$project/.zed/tasks.json"
+  fi
   existing=$(load_json "$target" "$empty")
   incoming=$(load_json "$tmp/$f.jsonc" "$empty")
 
@@ -124,6 +160,7 @@ EOF
   fi
 
   if [ "$mode" = "write" ] && [ -n "$adds" ]; then
+    mkdir -p "$(dirname "$target")"
     if [ -f "$target" ]; then
       backup="$target.zaw-bak-$(date +%Y%m%d%H%M%S)"
       cp "$target" "$backup"
@@ -135,7 +172,11 @@ EOF
 done
 
 if [ "$mode" = "dry-run" ]; then
-  printf '\nDry run only. Apply with: zaw setup-zed --write\n'
+  printf '\nDry run only. Rerun with the same options and --write to apply.\n'
+fi
+
+if [ "$remote" = "1" ] && [ -z "$project" ]; then
+  printf '\nFor project build tasks, run: zaw setup-zed --remote --project /path/to/paper --write\n'
 fi
 
 if [ "$total_conflicts" -gt 0 ]; then

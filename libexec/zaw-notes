@@ -20,17 +20,15 @@ zaw_resolve_root "$@"
 root=$ZAW_ROOT
 zaw_load_config "$root"
 
-pdf_path=$(zaw_pdf_path "$root" "$ZAW_TEX_ARG")
-root_tex=$ZAW_ROOT_TEX
-build_dir=$ZAW_BUILD_DIR
+root_tex=$(find_root_tex "$root" "$ZAW_TEX_ARG")
+build_dir=$(zaw_build_dir "$root")
+root_tex_base=$(basename "$root_tex")
+pdf_path="$build_dir/${root_tex_base%.tex}.pdf"
 notes_path="$build_dir/skim-notes.md"
 plist_notes_path="$build_dir/skim-notes.plist"
 link_text="[skim-notes.md]($notes_path)"
 
-if [ ! -x "$ZAW_SKIM_SKIMNOTES" ]; then
-  msg "skimnotes not found: $ZAW_SKIM_SKIMNOTES"
-  exit 1
-fi
+backend=$(zaw_pdf_backend)
 
 if [ ! -x "$RENDER_NOTES" ]; then
   msg "notes renderer not found: $RENDER_NOTES"
@@ -41,7 +39,7 @@ zaw_require_pdf "$pdf_path"
 
 mkdir -p "$build_dir"
 
-"$ZAW_SKIM_SKIMNOTES" get -format plist "$pdf_path" "$plist_notes_path"
+"$backend" extract-notes "$pdf_path" "$plist_notes_path"
 "$RENDER_NOTES" "$plist_notes_path" "$pdf_path" "$root_tex" "$root" "$ZED_LATEX_IMAGE" > "$notes_path"
 
 if [ "${ZAW_PRINT_ONLY:-}" = "1" ]; then

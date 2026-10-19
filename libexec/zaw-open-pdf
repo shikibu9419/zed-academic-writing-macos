@@ -2,18 +2,4 @@
 set -eu
 
 ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=libexec/zaw-common
-. "$ZAW_LIBEXEC/zaw-common"
-
-zaw_resolve_root "$@"
-zaw_load_config "$ZAW_ROOT"
-
-pdf_path=$(zaw_pdf_path "$ZAW_ROOT" "$ZAW_TEX_ARG")
-zaw_require_pdf "$pdf_path"
-
-if [ "${ZAW_PRINT_ONLY:-}" = "1" ]; then
-  printf '%s\n' "$pdf_path"
-  exit 0
-fi
-
-open -a Skim "$pdf_path"
+exec "$ZAW_LIBEXEC/zaw-pdf-preview" open "$@"

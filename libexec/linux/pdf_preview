@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -eu
+
+action=${1:?Expected open, forward-search, or extract-notes}
+shift
+case "$action" in
+  open | forward-search)
+    # Generic desktop preview; source-line navigation is not supported.
+    exec xdg-open "${1:?Expected PDF path}"
+    ;;
+  extract-notes)
+    printf 'PDF annotation extraction is not supported on Linux.\n' >&2
+    exit 1
+    ;;
+  *)
+    printf 'Unknown PDF backend action: %s\n' "$action" >&2
+    exit 2
+    ;;
+esac

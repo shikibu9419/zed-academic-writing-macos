@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# The single entry point for opening PDFs and source-to-PDF navigation.
+set -eu
+
+ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=libexec/zaw-common
+. "$ZAW_LIBEXEC/zaw-common"
+
+action=${1:?Expected open or forward-search}
+shift
+zaw_resolve_root "$@"
+
+# Disabled preview is a successful no-op, even before a PDF is built or a
+# viewer is installed. Read on every invocation so settings take effect now.
+zaw_pdf_preview_enabled "$ZAW_ROOT" || exit 0
+
+source_abs=""
+source_row=""
+case "$action" in
+  open) ;;
+  forward-search)
+    source_file=${1:-${ZED_FILE:-}}
+    source_row=${2:-${ZED_ROW:-0}}
+    if [ -z "$source_file" ]; then
+      msg 'Usage: zaw forward-search <file.tex> <line> [file.pdf]'
+      exit 2
+    fi
+    case "$source_row" in
+      '' | *[!0-9]*) msg "Invalid line number: $source_row"; exit 2 ;;
+    esac
+    if is_abs "$source_file"; then source_abs=$source_file
+    else source_abs="$PWD/$source_file"; fi
+    ;;
+  *) msg "Unknown PDF action: $action"; exit 2 ;;
+esac
+
+zaw_load_config "$ZAW_ROOT"
+# texlab supplies its PDF path as the third forward-search argument.
+if [ "$action" = "forward-search" ] && [ -n "${3:-}" ]; then
+  pdf_path=$3
+else
+  pdf_path=$(zaw_pdf_path "$ZAW_ROOT" "$ZAW_TEX_ARG")
+fi
+zaw_require_pdf "$pdf_path"
+
+if [ "${ZAW_PRINT_ONLY:-}" = "1" ]; then
+  if [ "$action" = "forward-search" ]; then
+    printf '%s\n%s\n%s\n' "$source_row" "$pdf_path" "$source_abs"
+  else
+    printf '%s\n' "$pdf_path"
+  fi
+  exit 0
+fi
+
+backend=$(zaw_pdf_backend)
+if [ "$action" = "forward-search" ]; then
+  exec "$backend" forward-search "$pdf_path" "$source_abs" "$source_row"
+fi
+exec "$backend" open "$pdf_path"

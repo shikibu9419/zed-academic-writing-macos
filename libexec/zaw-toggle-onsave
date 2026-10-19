@@ -8,7 +8,7 @@ ZAW_LIBEXEC=$(cd "$(dirname "$0")" && pwd)
 # Toggle `texlab.build.onSave` in the user's Zed settings. Operates on the
 # raw text so surrounding JSONC comments are preserved.
 
-settings_path="${ZAW_ZED_CONFIG_DIR:-$HOME/.config/zed}/settings.json"
+settings_path="${ZAW_ZED_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zed}/settings.json"
 
 if [ ! -f "$settings_path" ]; then
   msg "Zed settings not found: $settings_path"
@@ -16,7 +16,7 @@ if [ ! -f "$settings_path" ]; then
 fi
 
 current=$(grep -oE '"onSave"[[:space:]]*:[[:space:]]*(true|false)' "$settings_path" |
-  grep -oE 'true|false' | head -n1)
+  grep -oE 'true|false' | head -n1) || current=""
 
 if [ -z "$current" ]; then
   msg 'Could not find `"onSave": true/false` in Zed settings.'
@@ -30,6 +30,9 @@ else
   updated="true"
 fi
 
-sed -i '' -E "s/(\"onSave\"[[:space:]]*:[[:space:]]*)(true|false)/\1$updated/" "$settings_path"
+tmp=$(mktemp "${settings_path}.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+sed -E "s/(\"onSave\"[[:space:]]*:[[:space:]]*)(true|false)/\1$updated/" "$settings_path" > "$tmp"
+cat "$tmp" > "$settings_path"
 
 printf 'texlab.build.onSave: %s -> %s\n' "$current" "$updated"

@@ -29,9 +29,20 @@ def diff_obj($e; $i; $p):
     end;
 
 if $kind == "settings" then
+  # Migrate only the exact Skim default shipped by earlier zaw versions.
+  # Custom viewer settings retain the usual conflict/backup behavior.
+  (.lsp.texlab.settings.texlab.forwardSearch == {
+    executable: "/Applications/Skim.app/Contents/SharedSupport/displayline",
+    args: ["-r", "-z", "-b", "%l", "%p", "%f"]
+  }) as $migrate
+  | (if $migrate then del(.lsp.texlab.settings.texlab.forwardSearch) else . end)
+  | (if has("enable_pdf_preview") then
+       $incoming + {enable_pdf_preview: .enable_pdf_preview}
+     else $incoming end) as $settings
+  |
   {
-    result: ($incoming * .),
-    entries: [diff_obj(.; $incoming; [])]
+    result: ($settings * .),
+    entries: [diff_obj(.; $settings; [])]
   }
 
 elif $kind == "tasks" then
