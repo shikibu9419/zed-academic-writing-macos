@@ -106,8 +106,8 @@ and rerun `zaw notes`.
 
 Tasks registered by `zaw setup-zed`: `LaTeX: Docker build` (bound to
 `cmd-enter` in `.tex` files), `LaTeX: Docker pdflatex`,
-`LaTeX: Docker latexmkrc`, `LaTeX: Open PDF in Skim`,
-`LaTeX: Forward Search in Skim`, `LaTeX: Open Skim Notes`,
+`LaTeX: Docker latexmkrc`, `LaTeX: Open PDF`,
+`LaTeX: Forward Search`, `LaTeX: Open Skim Notes`,
 `LaTeX: Toggle Build On Save`.
 
 Skim reverse search (one-time, in Skim Settings → Sync → Preset Custom):

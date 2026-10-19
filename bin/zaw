@@ -24,7 +24,7 @@ export ZAW_PREFIX ZAW_VERSION
 
 usage() {
   cat <<EOF
-zaw $ZAW_VERSION — Zed academic writing toolkit for macOS
+zaw $ZAW_VERSION — Zed academic writing toolkit
 
 Usage: zaw <command> [args]
 
@@ -37,13 +37,15 @@ Project:
 
 Writing loop:
   build [latexmk args] [file.tex]  Build LaTeX with Docker (latexmk)
-  open-pdf [file.tex]              Open the built PDF in Skim
-  forward-search <file> <line>     Jump Skim to the PDF position of a source line
+  open-pdf [file.tex]              Open the built PDF if enable_pdf_preview is true
+  forward-search <file> <line> [file.pdf]
+                                 Preview PDF (SyncTeX navigation on macOS)
   notes [--open] [file.tex]        Export Skim annotations to .build/skim-notes.md
   toggle-onsave                    Toggle texlab build-on-save in Zed settings
 
 Environment:
-  setup-zed [--write]            Merge Zed settings/tasks/keymap snippets (dry-run by default)
+  setup-zed [--write] [--remote] [--project <dir>]
+                                 Merge Zed config (dry-run by default)
   update                         Update zaw itself
   uninstall [--purge]            Remove zaw from this machine
 

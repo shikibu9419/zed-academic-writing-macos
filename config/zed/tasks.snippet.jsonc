@@ -60,7 +60,7 @@
     "save": "all"
   },
   {
-    "label": "LaTeX: Open PDF in Skim",
+    "label": "LaTeX: Open PDF",
     "command": "__HOME__/.local/bin/zaw",
     "args": ["open-pdf", "$ZED_FILE"],
     "allow_concurrent_runs": false,
@@ -68,7 +68,7 @@
     "hide": "always"
   },
   {
-    "label": "LaTeX: Forward Search in Skim",
+    "label": "LaTeX: Forward Search",
     "command": "__HOME__/.local/bin/zaw",
     "args": ["forward-search", "$ZED_FILE", "$ZED_ROW"],
     "allow_concurrent_runs": true,

@@ -13,11 +13,15 @@ DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zaw"
 BIN_DIR="$HOME/.local/bin"
 
 mode="fetch"
+remote=0
 for arg in "$@"; do
   case "$arg" in
     --link) mode="link" ;;
+    --remote) remote=1 ;;
     -h | --help)
-      sed -n '2,9p' "$0" 2>/dev/null || true
+      printf 'Usage: install.sh [--link] [--remote]\n\n'
+      printf '  --link    Symlink the CLI from this checkout\n'
+      printf '  --remote  Configure an SSH server; default PDF preview to false\n'
       exit 0
       ;;
     *)
@@ -65,12 +69,14 @@ esac
 # backs up first. Skip entirely with ZAW_SKIP_SETUP_ZED=1; auto-apply
 # without a prompt with ZAW_ASSUME_YES=1.
 if [ "${ZAW_SKIP_SETUP_ZED:-0}" != "1" ]; then
-  if ! command -v zed >/dev/null 2>&1 && [ ! -d /Applications/Zed.app ]; then
+  if [ "$remote" = "0" ] && ! command -v zed >/dev/null 2>&1 && [ ! -d /Applications/Zed.app ]; then
     printf '\nZed not found — skipping Zed config setup.\n'
     printf 'After installing Zed, run: zaw setup-zed --write\n'
   else
-    printf '\nZed config changes (settings/tasks/keymap) — dry run:\n\n'
-    "$src/bin/zaw" setup-zed || true   # exit 1 just flags conflicts
+    set --
+    if [ "$remote" = "1" ]; then set -- --remote; fi
+    printf '\nZed config changes — dry run:\n\n'
+    "$src/bin/zaw" setup-zed "$@" || true   # exit 1 just flags conflicts
 
     apply=0
     if [ "${ZAW_ASSUME_YES:-0}" = "1" ]; then
@@ -87,19 +93,35 @@ if [ "${ZAW_SKIP_SETUP_ZED:-0}" != "1" ]; then
 
     if [ "$apply" = "1" ]; then
       printf '\n'
-      "$src/bin/zaw" setup-zed --write || true   # exit 1 = conflicts kept; not fatal
+      "$src/bin/zaw" setup-zed "$@" --write || true   # exit 1 = conflicts kept; not fatal
     else
-      printf 'Skipped. Apply later with: zaw setup-zed --write\n'
+      printf 'Skipped. Apply later with: zaw setup-zed %s --write\n' "$*"
     fi
   fi
 fi
 
-cat <<EOF
+if [ "$remote" = "1" ]; then
+  cat <<EOF
+
+Next steps (on the server):
+  zaw new my-paper --no-open
+  zaw setup-zed --remote --project my-paper --write
+
+Install the latex extension in your local Zed, then open the server project over SSH.
+Requirements on the server: Bash, Docker, jq. No GUI Zed or Skim required.
+EOF
+else
+  cat <<EOF
 
 Next step:
   zaw new my-paper    # create a paper project and open it in Zed
 
-For Skim reverse search (PDF -> Zed), see "Skim settings" in the README.
-
-Requirements: Docker, Zed, Skim, jq.
+Requirements: Bash, Docker, Zed, jq.
 EOF
+fi
+
+if [ "$remote" = "0" ] && [ "$(uname -s)" = "Darwin" ]; then
+  printf '\nFor Skim preview and reverse search (PDF -> Zed), install Skim and see "Skim settings" in the README.\n'
+else
+  printf '\nPDF preview defaults to disabled. Enable with enable_pdf_preview in Zed settings.\n'
+fi

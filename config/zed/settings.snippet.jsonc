@@ -2,6 +2,8 @@
 // __HOME__ is replaced with your home directory at merge time
 // (texlab spawns this executable directly, so it needs an absolute path).
 {
+  // Read by zaw's PDF opener. Zed itself does not interpret this option.
+  "enable_pdf_preview": __ENABLE_PDF_PREVIEW__,
   "lsp": {
     "texlab": {
       "settings": {
@@ -23,8 +25,8 @@
             ]
           },
           "forwardSearch": {
-            "executable": "/Applications/Skim.app/Contents/SharedSupport/displayline",
-            "args": ["-r", "-z", "-b", "%l", "%p", "%f"]
+            "executable": "__HOME__/.local/bin/zaw",
+            "args": ["forward-search", "%f", "%l", "%p"]
           }
         }
       }

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# All runtime interaction with Skim lives in this macOS backend.
+set -eu
+
+skim_app=${ZAW_SKIM_APP:-/Applications/Skim.app}
+displayline="$skim_app/Contents/SharedSupport/displayline"
+skimnotes="$skim_app/Contents/SharedSupport/skimnotes"
+
+require_executable() {
+  if [ ! -x "$1" ]; then
+    printf 'Skim executable not found: %s\n' "$1" >&2
+    exit 1
+  fi
+}
+
+action=${1:?Expected open, forward-search, or extract-notes}
+shift
+case "$action" in
+  open)
+    exec open -a "$skim_app" "${1:?Expected PDF path}"
+    ;;
+  forward-search)
+    require_executable "$displayline"
+    exec "$displayline" -r -g -z "${3:?Expected line}" \
+      "${1:?Expected PDF path}" "${2:?Expected source path}"
+    ;;
+  extract-notes)
+    require_executable "$skimnotes"
+    exec "$skimnotes" get -format plist "${1:?Expected PDF path}" \
+      "${2:?Expected output plist path}"
+    ;;
+  *)
+    printf 'Unknown PDF backend action: %s\n' "$action" >&2
+    exit 2
+    ;;
+esac
